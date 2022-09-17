@@ -8,7 +8,7 @@
       width: 325px;
     }
 
-    .frequencyGenerator {
+    .card {
       padding: 15px;
       margin: 20px;
       border: 1px solid gray;
@@ -17,7 +17,7 @@
 
   <body>
 
-    <div class="frequencyGenerator">
+    <div class="frequencyGenerator card">
       <h3>Frequency Generator</h3>
 
       frequency: <span id="frequencyDisplay"></span>
@@ -40,11 +40,20 @@
       <button onclick='startOutput();'>Start</button>
       <button onclick='stopOutput();'>Stop</button>
     </div>
+
+    <div class="card">
+      <h3>Spectrum Analyzer</h3>
+
+      <button onclick='createAudioMotion();'>Start</button>
+
+      <div id="container" class="fluid"></div>
+    </div>
   </body>
 <script>
 
 // one context per document
 var context = new (window.AudioContext || window.webkitAudioContext)();
+window.mainAudioContext = context;
 
 var osc;
 var vol;
@@ -52,6 +61,7 @@ function newOsc() {
   // instantiate an oscillator
   osc = context.createOscillator();
   vol = context.createGain();
+  window.mainGainNode = vol;
 
   // this is the default - also square, sawtooth, triangle
   osc.type = 'sine';
@@ -107,4 +117,6 @@ newOsc();
 updateValues();
 
 </script>
+
+<script type="module" src="./main.js"></script>
 </html>
