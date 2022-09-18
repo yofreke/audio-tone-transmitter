@@ -3,15 +3,21 @@ const clockSpeedHz = 2;
 // How long it takes for a full cycle of the theoretical clock
 const cycleDuration = 1000 / clockSpeedHz;
 // How long a bit should be held in the on state
-const bitOnduration = cycleDuration * 0.5;
+const bitOnDuration = cycleDuration * 0.5;
 
 // const allowedChars = "abcdefghijklmnopqrstuvwxyz1234567890!,. ?";
-// b64 letters
-const allowedChars = "0123";
+// b16 letter
+const allowedChars = "0123456789abcdef";
+// b4 letters
+// const allowedChars = "0123";
+
 const availableCharCount = allowedChars.length;
 
-const startFrequency = 2000;
-const frequencyRange = 12000;
+const startFrequency = 4000;
+const frequencyRange = 10000;
+const clockFrequency = 2750;
+
+const binSize = frequencyRange / availableCharCount;
 
 const charCodeToFrequency = (charCode) => {
   const index = allowedChars.indexOf(String.fromCharCode(charCode));
@@ -20,7 +26,6 @@ const charCodeToFrequency = (charCode) => {
 
 const frequencyToCharCode = (frequency) => {
   // Offset the bins to the left by a half bin
-  const binSize = frequencyRange / availableCharCount;
   const index = Math.floor(
     (frequency - startFrequency + 0.5 * binSize) / binSize
   );
@@ -65,7 +70,8 @@ const b4ToString = (b4String) => {
 const startSend = async () => {
   const sendInputEl = document.getElementById("sendInput");
   // const data = sendInputEl.value;
-  const data = stringToB4(sendInputEl.value);
+  const data = stringToB16(sendInputEl.value);
+  // const data = stringToB4(sendInputEl.value);
   console.log("startSend:", data.length, data);
 
   let sendIndex = 0;
@@ -88,6 +94,15 @@ const startSend = async () => {
       throw new Error(`char '${char}' not in allowedChars "${allowedChars}"`);
     }
 
+    // Disable output, or send clock tone
+    window.mainOscillatorNode.frequency.value = clockFrequency;
+    window.mainGainNode.gain.value = 0.9;
+
+    // Wait for next clock cycle
+    await new Promise((resolve) =>
+      setTimeout(resolve, cycleDuration - bitOnDuration)
+    );
+
     // Enable output
     const newFrequency = charCodeToFrequency(charCode);
     console.log("newFrequency=", newFrequency);
@@ -95,17 +110,11 @@ const startSend = async () => {
     window.mainGainNode.gain.value = 0.9;
 
     // Wait until bit is off
-    await new Promise((resolve) => setTimeout(resolve, bitOnduration));
+    await new Promise((resolve) => setTimeout(resolve, bitOnDuration));
 
-    // Disable output
     window.mainGainNode.gain.value = 0;
 
     sendIndex++;
-
-    // Wait for next clock cycle
-    await new Promise((resolve) =>
-      setTimeout(resolve, cycleDuration - bitOnduration)
-    );
   }
 
   window.stopOutput();
@@ -144,6 +153,7 @@ const startReceive = async () => {
     let lastFrequencyCounter = 0;
     let lastFrequencyCounterStartTime = 0;
     let lastFrequencyCounterIncrementTime = 0;
+    let seenClockTone = false;
 
     function resetCounters(idx) {
       console.log("> Resetting counters");
@@ -154,10 +164,23 @@ const startReceive = async () => {
       lastFrequencyCounterIncrementTime = 0;
     }
 
+    const detectDurationThreshold = 0.4;
+    const detectClockDuration =
+      (cycleDuration - bitOnDuration) * detectDurationThreshold;
+    console.log(
+      "bitOnDuration=",
+      bitOnDuration,
+      "detectClockDuration=",
+      detectClockDuration
+    );
+
     function checkCommitReading(idx) {
       const now = Date.now();
 
-      var frequency = (idx * ctx.sampleRate) / analyser.fftSize;
+      const lfcStartElapsed = now - lastFrequencyCounterStartTime;
+
+      const frequency = (idx * ctx.sampleRate) / analyser.fftSize;
+
       console.log(
         "idx=",
         idx,
@@ -170,14 +193,32 @@ const startReceive = async () => {
         "lfcStartTime=",
         lastFrequencyCounterStartTime,
         "lfcIncrementTime=",
-        lastFrequencyCounterIncrementTime
+        lastFrequencyCounterIncrementTime,
+        "lfcStartElapsed=",
+        lfcStartElapsed,
+        "seenClockTone",
+        seenClockTone
       );
+
+      // Check if this constitutes a clock signal
+      if (
+        data[idx] > 70 &&
+        Math.abs(frequency - clockFrequency) < binSize * 0.5 &&
+        lfcStartElapsed >= detectClockDuration
+      ) {
+        seenClockTone = true;
+      }
 
       // Reset if still tracking after single clock cycle, this may indicate
       // repeating characters in the transmission
-      if (now - lastFrequencyCounterStartTime >= bitOnduration) {
+      if (
+        lfcStartElapsed >= bitOnDuration * detectDurationThreshold &&
+        seenClockTone
+      ) {
         // receiveInputEl.value += lastFrequencyBin + ", ";
         const charCode = frequencyToCharCode(frequency);
+        console.log("charCode=", charCode);
+
         if (charCode !== null) {
           const char = String.fromCharCode(charCode);
 
@@ -202,9 +243,12 @@ const startReceive = async () => {
 
           // Commit the current input to final output
           receiveInputEl.value += char;
+
+          seenClockTone = false;
         }
 
         // Reset values
+        console.log("bit duration exceeded, will reset");
         resetCounters(idx);
       }
     }
@@ -231,7 +275,7 @@ const startReceive = async () => {
           if (
             lastFrequencyCounterIncrementTime > 0 &&
             now - lastFrequencyCounterIncrementTime >=
-              cycleDuration - bitOnduration
+              cycleDuration - bitOnDuration
           ) {
             console.log("> detected cycle off");
             resetCounters();
@@ -243,16 +287,17 @@ const startReceive = async () => {
         }
       } else {
         // TODO: This should probably be based on time, not ticks
-        if (lastFrequencyCounter > 2) {
+        if (lastFrequencyCounter > 4) {
           checkCommitReading(lastFrequencyBin);
         }
 
+        console.log("idx not same as lastFrequencyBin", idx, lastFrequencyBin);
         resetCounters(idx);
       }
 
       if (
         idx === lastFrequencyBin &&
-        lastFrequencyCounter > 2 &&
+        lastFrequencyCounter > 4 &&
         data[idx] > frequencyBinAbsoluteMin
       ) {
         checkCommitReading(idx);
@@ -278,8 +323,10 @@ const stopReceive = async () => {
   }
 
   const receiveInputEl = document.getElementById("receiveInput");
-  const result = b4ToString(receiveInputEl.value);
-  console.log('receive result=', result);
+  // const result = receiveInputEl.value;
+  const result = b16ToString(receiveInputEl.value);
+  // const result = b4ToString(receiveInputEl.value);
+  console.log("receive result=", result);
 };
 
 window.stopReceive = stopReceive;
