@@ -1,39 +1,71 @@
 // How many Hz is the theoretical clock running at
-const clockSpeedHz = 8;
+const clockSpeedHz = 2;
 // How long it takes for a full cycle of the theoretical clock
 const cycleDuration = 1000 / clockSpeedHz;
 // How long a bit should be held in the on state
-const bitOnduration = cycleDuration * 0.6;
+const bitOnduration = cycleDuration * 0.5;
 
-// The start of char codes that we can transmit
-const startCharCode = 32;
-const endCharCode = 126;
-const availableCharCount = endCharCode - startCharCode;
+// const allowedChars = "abcdefghijklmnopqrstuvwxyz1234567890!,. ?";
+// b64 letters
+const allowedChars = "0123";
+const availableCharCount = allowedChars.length;
 
 const startFrequency = 2000;
-const frequencyRange = 15000;
+const frequencyRange = 12000;
 
 const charCodeToFrequency = (charCode) => {
-  return (
-    startFrequency +
-    (frequencyRange / availableCharCount) * (charCode - startCharCode)
-  );
+  const index = allowedChars.indexOf(String.fromCharCode(charCode));
+  return startFrequency + (frequencyRange / availableCharCount) * index;
 };
 
 const frequencyToCharCode = (frequency) => {
   // Offset the bins to the left by a half bin
-  // return startFrequency +
-  //   (frequencyRange / availableCharCount) * (startCharCode - 0.5);
   const binSize = frequencyRange / availableCharCount;
-  return (
-    startCharCode +
-    Math.floor((frequency - startFrequency + 0.5 * binSize) / binSize)
+  const index = Math.floor(
+    (frequency - startFrequency + 0.5 * binSize) / binSize
   );
+  if (index >= allowedChars.length || index < 0) {
+    console.log(`index= ${index} allowedChars.length= ${allowedChars.length}`);
+    return null;
+  }
+  return allowedChars[index].charCodeAt(0);
+};
+
+// See: https://stackoverflow.com/a/60435654
+const stringToB16 = (s) => {
+  return s
+    .split("")
+    .map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const b16ToString = (b16String) => {
+  return b16String
+    .split(/(\w\w)/g)
+    .filter((p) => !!p)
+    .map((c) => String.fromCharCode(parseInt(c, 16)))
+    .join("");
+};
+
+const stringToB4 = (s) => {
+  return s
+    .split("")
+    .map((c) => c.charCodeAt(0).toString(4).padStart(2, "0"))
+    .join("");
+};
+
+const b4ToString = (b4String) => {
+  return b4String
+    .split(/(\w\w\w\w)/g)
+    .filter((p) => !!p)
+    .map((c) => String.fromCharCode(parseInt(c, 4)))
+    .join("");
 };
 
 const startSend = async () => {
   const sendInputEl = document.getElementById("sendInput");
-  const data = sendInputEl.value;
+  // const data = sendInputEl.value;
+  const data = stringToB4(sendInputEl.value);
   console.log("startSend:", data.length, data);
 
   let sendIndex = 0;
@@ -43,7 +75,7 @@ const startSend = async () => {
   window.mainOscillatorNode.frequency.value = 440;
   window.mainGainNode.gain.value = 0;
 
-  startOutput();
+  window.startOutput();
 
   while (sendIndex < data.length) {
     const char = data[sendIndex];
@@ -51,8 +83,9 @@ const startSend = async () => {
     console.log("> Sending char:", char, charCode);
 
     // Limit to only sending some of the available chars
-    if (charCode < startCharCode || charCode > endCharCode) {
-      throw new Error("char code too high");
+    const charIndex = allowedChars.indexOf(char);
+    if (charIndex < 0) {
+      throw new Error(`char '${char}' not in allowedChars "${allowedChars}"`);
     }
 
     // Enable output
@@ -75,7 +108,7 @@ const startSend = async () => {
     );
   }
 
-  stopOutput();
+  window.stopOutput();
 
   // for (let char of data) {
   //   console.log('> Sending char:', char);
@@ -145,29 +178,31 @@ const startReceive = async () => {
       if (now - lastFrequencyCounterStartTime >= bitOnduration) {
         // receiveInputEl.value += lastFrequencyBin + ", ";
         const charCode = frequencyToCharCode(frequency);
-        const char = String.fromCharCode(charCode);
+        if (charCode !== null) {
+          const char = String.fromCharCode(charCode);
 
-        console.log(
-          "Committing: frequency=",
-          frequency,
-          "charCode=",
-          charCode,
-          "char=",
-          char
-        );
+          console.log(
+            "Committing: frequency=",
+            frequency,
+            "charCode=",
+            charCode,
+            "char=",
+            char
+          );
 
-        if (
-          receiveInputEl.value.length > 3 &&
-          char === "!" &&
-          receiveInputEl.value[receiveInputEl.value.length - 1] === "!" &&
-          receiveInputEl.value[receiveInputEl.value.length - 2] === "!"
-        ) {
-          console.log("Detected stop signal");
-          stopReceive();
+          if (
+            receiveInputEl.value.length > 3 &&
+            char === "!" &&
+            receiveInputEl.value[receiveInputEl.value.length - 1] === "!" &&
+            receiveInputEl.value[receiveInputEl.value.length - 2] === "!"
+          ) {
+            console.log("Detected stop signal");
+            stopReceive();
+          }
+
+          // Commit the current input to final output
+          receiveInputEl.value += char;
         }
-
-        // Commit the current input to final output
-        receiveInputEl.value += char;
 
         // Reset values
         resetCounters(idx);
@@ -241,6 +276,10 @@ const stopReceive = async () => {
     window.transmitReceiveContext.close();
     window.transmitReceiveContext = null;
   }
+
+  const receiveInputEl = document.getElementById("receiveInput");
+  const result = b4ToString(receiveInputEl.value);
+  console.log('receive result=', result);
 };
 
 window.stopReceive = stopReceive;
