@@ -12,12 +12,12 @@ function createAudioMotion() {
       {
         // main audio source is the HTML <audio> element
         source,
+        audioCtx: window.mainAudioContext,
+        connectSpeakers: false,
         // callback function used to add custom features for this demo
         onCanvasDraw: drawCallback,
         onCanvasResize: ( reason, instance ) => {
           console.log( `[${reason}] canvas size is: ${instance.canvas.width} x ${instance.canvas.height}` );
-          if ( reason != 'create' )
-            updateUI();
         }
       }
     );
@@ -41,5 +41,3 @@ function createAudioMotion() {
 }
 
 window.createAudioMotion = createAudioMotion;
-
-// createAudioMotion();
