@@ -3,11 +3,20 @@ import AudioMotionAnalyzer from './audiomotion-analyzer_3.6.0.js';
 function drawCallback() {
 }
 
+let audioMotion;
+
 function createAudioMotion() {
+  if (audioMotion) {
+    console.log('Already exists')
+    // TODO: Cleanup and make again
+    return;
+  }
+
   try {
     const source = window.mainGainNode
     console.log('Using source:', source)
-    var audioMotion = new AudioMotionAnalyzer(
+
+    audioMotion = new AudioMotionAnalyzer(
       document.getElementById('container'),
       {
         // main audio source is the HTML <audio> element

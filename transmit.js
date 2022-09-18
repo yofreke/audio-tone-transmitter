@@ -1,17 +1,35 @@
 // How many Hz is the theoretical clock running at
-const clockSpeedHz = 5;
+const clockSpeedHz = 8;
 // How long it takes for a full cycle of the theoretical clock
 const cycleDuration = 1000 / clockSpeedHz;
 // How long a bit should be held in the on state
-const bitOnduration = cycleDuration * 0.8;
+const bitOnduration = cycleDuration * 0.6;
 
 // The start of char codes that we can transmit
 const startCharCode = 32;
 const endCharCode = 126;
 const availableCharCount = endCharCode - startCharCode;
 
-const startFrequency = 100;
-const frequencyRange = 12000;
+const startFrequency = 2000;
+const frequencyRange = 15000;
+
+const charCodeToFrequency = (charCode) => {
+  return (
+    startFrequency +
+    (frequencyRange / availableCharCount) * (charCode - startCharCode)
+  );
+};
+
+const frequencyToCharCode = (frequency) => {
+  // Offset the bins to the left by a half bin
+  // return startFrequency +
+  //   (frequencyRange / availableCharCount) * (startCharCode - 0.5);
+  const binSize = frequencyRange / availableCharCount;
+  return (
+    startCharCode +
+    Math.floor((frequency - startFrequency + 0.5 * binSize) / binSize)
+  );
+};
 
 const startSend = async () => {
   const sendInputEl = document.getElementById("sendInput");
@@ -38,9 +56,7 @@ const startSend = async () => {
     }
 
     // Enable output
-    const newFrequency =
-      startFrequency +
-      (frequencyRange / availableCharCount) * (charCode - startCharCode);
+    const newFrequency = charCodeToFrequency(charCode);
     console.log("newFrequency=", newFrequency);
     window.mainOscillatorNode.frequency.value = newFrequency;
     window.mainGainNode.gain.value = 0.9;
@@ -83,6 +99,7 @@ const startReceive = async () => {
     var analyser = ctx.createAnalyser();
     // Default is 2048
     analyser.fftSize = 8192;
+    // analyser.fftSize = 32768;
 
     window.transmitReceiveContext = ctx;
 
@@ -90,9 +107,72 @@ const startReceive = async () => {
 
     var data = new Uint8Array(analyser.frequencyBinCount);
 
-    let lastFrequencyBin = null;
+    let lastFrequencyBin = -1;
     let lastFrequencyCounter = 0;
     let lastFrequencyCounterStartTime = 0;
+    let lastFrequencyCounterIncrementTime = 0;
+
+    function resetCounters(idx) {
+      console.log("> Resetting counters");
+      // TODO: Can probably be more lenient, and track the most recent 3
+      lastFrequencyBin = idx;
+      lastFrequencyCounter = 0;
+      lastFrequencyCounterStartTime = Date.now();
+      lastFrequencyCounterIncrementTime = 0;
+    }
+
+    function checkCommitReading(idx) {
+      const now = Date.now();
+
+      var frequency = (idx * ctx.sampleRate) / analyser.fftSize;
+      console.log(
+        "idx=",
+        idx,
+        "data[idx]=",
+        data[idx],
+        "frequency=",
+        frequency,
+        "lastFrequencyCounter=",
+        lastFrequencyCounter,
+        "lfcStartTime=",
+        lastFrequencyCounterStartTime,
+        "lfcIncrementTime=",
+        lastFrequencyCounterIncrementTime
+      );
+
+      // Reset if still tracking after single clock cycle, this may indicate
+      // repeating characters in the transmission
+      if (now - lastFrequencyCounterStartTime >= bitOnduration) {
+        // receiveInputEl.value += lastFrequencyBin + ", ";
+        const charCode = frequencyToCharCode(frequency);
+        const char = String.fromCharCode(charCode);
+
+        console.log(
+          "Committing: frequency=",
+          frequency,
+          "charCode=",
+          charCode,
+          "char=",
+          char
+        );
+
+        if (
+          receiveInputEl.value.length > 3 &&
+          char === "!" &&
+          receiveInputEl.value[receiveInputEl.value.length - 1] === "!" &&
+          receiveInputEl.value[receiveInputEl.value.length - 2] === "!"
+        ) {
+          console.log("Detected stop signal");
+          stopReceive();
+        }
+
+        // Commit the current input to final output
+        receiveInputEl.value += char;
+
+        // Reset values
+        resetCounters(idx);
+      }
+    }
 
     function play() {
       analyser.getByteFrequencyData(data);
@@ -107,43 +187,40 @@ const startReceive = async () => {
 
       const now = Date.now();
 
+      // TODO: Make this a normalized value
+      // const frequencyBinAbsoluteMin = 150;
+      const frequencyBinAbsoluteMin = 60;
+
       if (idx === lastFrequencyBin) {
-        if (data[idx] > 150) {
-          // The primary bucket should also have a large confidence
-          lastFrequencyCounter++;
+        if (data[idx] > frequencyBinAbsoluteMin) {
+          if (
+            lastFrequencyCounterIncrementTime > 0 &&
+            now - lastFrequencyCounterIncrementTime >=
+              cycleDuration - bitOnduration
+          ) {
+            console.log("> detected cycle off");
+            resetCounters();
+          } else {
+            // The primary bucket should also have a large confidence
+            lastFrequencyCounter++;
+            lastFrequencyCounterIncrementTime = now;
+          }
         }
       } else {
-        // TODO: Can probably be more lenient, and track the most recent 3
-        lastFrequencyBin = idx;
-        lastFrequencyCounter = 0;
-        lastFrequencyCounterStartTime = now;
+        // TODO: This should probably be based on time, not ticks
+        if (lastFrequencyCounter > 2) {
+          checkCommitReading(lastFrequencyBin);
+        }
+
+        resetCounters(idx);
       }
 
-      if (lastFrequencyCounter > 7 && data[idx] > 150) {
-        var frequency = (idx * ctx.sampleRate) / analyser.fftSize;
-        console.log(
-          "idx=",
-          idx,
-          "data[idx]=",
-          data[idx],
-          "frequency=",
-          frequency,
-          "lastFrequencyCounter=",
-          lastFrequencyCounter
-        );
-
-        // Reset if still tracking after single clock cycle, this may indicate
-        // repeating characters in the transmission
-        if (now - lastFrequencyCounterStartTime >= cycleDuration) {
-          // Commit the current input to final result
-          // TODO: map the frequency to a character
-          receiveInputEl.value += lastFrequencyBin + ", ";
-
-          // Reset values
-          lastFrequencyBin = idx;
-          lastFrequencyCounter = 0;
-          lastFrequencyCounterStartTime = now;
-        }
+      if (
+        idx === lastFrequencyBin &&
+        lastFrequencyCounter > 2 &&
+        data[idx] > frequencyBinAbsoluteMin
+      ) {
+        checkCommitReading(idx);
       }
 
       if (window.transmitReceiveContext) {
