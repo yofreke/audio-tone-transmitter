@@ -13,6 +13,12 @@
       margin: 20px;
       border: 1px solid gray;
     }
+
+    canvas {
+      border: 1px solid gray;
+      width: 300px;
+      height: 300px;
+    }
   </style>
 
   <body>
@@ -61,15 +67,29 @@
     <div class="card">
       <h3>Transmit: Receive</h3>
 
+      <input id="receiveInputRaw" type='text' size="50" value="..." disabled></input>
       <input id="receiveInput" type='text' size="50" value="..." disabled></input>
 
       <br>
       <button onclick='startReceive();'>Start Receive</button>
       <button onclick='stopReceive();'>Stop Receive</button>
     </div>
+
+    <div class="card">
+      <h3>Transmit: Draw</h3>
+
+      <canvas id="myCanvas" width="50px" height="50px"></canvas>
+
+      <br>
+      <button onclick='startSendCanvas();'>Start Send</button>
+      <button onclick='stopSendCanvas();'>Stop Send</button>
+      <button onclick='startReceiveCanvas();'>Start Receive</button>
+      <button onclick='stopReceiveCanvas();'>Stop Receive</button>
+    </div>
   </body>
 
   <script type="module" src="./frequencyGenerator.js"></script>
   <script type="module" src="./spectrumAnalyzer.js"></script>
   <script type="module" src="./transmit.js"></script>
+  <script type="module" src="./drawing.js"></script>
 </html>

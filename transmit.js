@@ -1,5 +1,5 @@
 // How many Hz is the theoretical clock running at
-const clockSpeedHz = 2;
+const clockSpeedHz = 1;
 // How long it takes for a full cycle of the theoretical clock
 const cycleDuration = 1000 / clockSpeedHz;
 // How long a bit should be held in the on state
@@ -7,13 +7,17 @@ const bitOnDuration = cycleDuration * 0.5;
 
 // const allowedChars = "abcdefghijklmnopqrstuvwxyz1234567890!,. ?";
 // b16 letter
-const allowedChars = "0123456789abcdef";
+// const allowedChars = "0123456789abcdef";
 // b4 letters
-// const allowedChars = "0123";
+const allowedChars = "0123";
 
 const availableCharCount = allowedChars.length;
 
-const startFrequency = 4000;
+// const startFrequency = 4000;
+// Have to use a higher starting frequency for 4 bit to ensure does not overlap
+// with clock frequency.
+const startFrequency = 6000;
+
 const frequencyRange = 10000;
 const clockFrequency = 2750;
 
@@ -67,13 +71,7 @@ const b4ToString = (b4String) => {
     .join("");
 };
 
-const startSend = async () => {
-  const sendInputEl = document.getElementById("sendInput");
-  // const data = sendInputEl.value;
-  const data = stringToB16(sendInputEl.value);
-  // const data = stringToB4(sendInputEl.value);
-  console.log("startSend:", data.length, data);
-
+const doSend = async (data) => {
   let sendIndex = 0;
 
   window.newOsc();
@@ -126,13 +124,46 @@ const startSend = async () => {
   // }
 };
 
+const startSend = async () => {
+  const sendInputEl = document.getElementById("sendInput");
+  // const data = sendInputEl.value;
+  // const data = stringToB16(sendInputEl.value);
+  const data = stringToB4(sendInputEl.value);
+  console.log("startSend:", data.length, data);
+
+  await doSend(data);
+};
+
 window.startSend = startSend;
+
+const updateReceiveResult = () => {
+  const receiveInputRawEl = document.getElementById("receiveInputRaw");
+  const receiveInputEl = document.getElementById("receiveInput");
+
+  // const result = receiveInputEl.value;
+  // const result = b16ToString(receiveInputEl.value);
+  const result = b4ToString(receiveInputRawEl.value);
+  console.log("receive result=", result);
+  receiveInputEl.value = result;
+
+  if (
+    receiveInputEl.value.length > 3 &&
+    receiveInputEl.value[receiveInputEl.value.length - 1] === "!" &&
+    receiveInputEl.value[receiveInputEl.value.length - 2] === "!" &&
+    receiveInputEl.value[receiveInputEl.value.length - 3] === "!"
+  ) {
+    console.log("Detected stop signal");
+    stopReceive();
+  }
+};
 
 window.transmitReceiveContext = null;
 
 const startReceive = async () => {
+  const receiveInputRawEl = document.getElementById("receiveInputRaw");
   const receiveInputEl = document.getElementById("receiveInput");
 
+  receiveInputRawEl.value = "";
   receiveInputEl.value = "";
 
   const callback = (stream) => {
@@ -140,7 +171,8 @@ const startReceive = async () => {
     var mic = ctx.createMediaStreamSource(stream);
     var analyser = ctx.createAnalyser();
     // Default is 2048
-    analyser.fftSize = 8192;
+    analyser.fftSize = 4096;
+    // analyser.fftSize = 8192;
     // analyser.fftSize = 32768;
 
     window.transmitReceiveContext = ctx;
@@ -164,7 +196,7 @@ const startReceive = async () => {
       lastFrequencyCounterIncrementTime = 0;
     }
 
-    const detectDurationThreshold = 0.4;
+    const detectDurationThreshold = 0.5;
     const detectClockDuration =
       (cycleDuration - bitOnDuration) * detectDurationThreshold;
     console.log(
@@ -207,6 +239,7 @@ const startReceive = async () => {
         lfcStartElapsed >= detectClockDuration
       ) {
         seenClockTone = true;
+        console.log("> seenClockTone = true");
       }
 
       // Reset if still tracking after single clock cycle, this may indicate
@@ -231,18 +264,10 @@ const startReceive = async () => {
             char
           );
 
-          if (
-            receiveInputEl.value.length > 3 &&
-            char === "!" &&
-            receiveInputEl.value[receiveInputEl.value.length - 1] === "!" &&
-            receiveInputEl.value[receiveInputEl.value.length - 2] === "!"
-          ) {
-            console.log("Detected stop signal");
-            stopReceive();
-          }
-
           // Commit the current input to final output
-          receiveInputEl.value += char;
+          receiveInputRawEl.value += char;
+
+          updateReceiveResult();
 
           seenClockTone = false;
         }
@@ -322,11 +347,45 @@ const stopReceive = async () => {
     window.transmitReceiveContext = null;
   }
 
-  const receiveInputEl = document.getElementById("receiveInput");
-  // const result = receiveInputEl.value;
-  const result = b16ToString(receiveInputEl.value);
-  // const result = b4ToString(receiveInputEl.value);
-  console.log("receive result=", result);
+  updateReceiveResult();
 };
 
 window.stopReceive = stopReceive;
+
+// ---- ---- ---- ----
+// Canvas related transmit stuff
+
+const startSendCanvas = () => {
+  const canvasData = window.getCanvasData();
+  console.log("canvasData=", canvasData);
+
+  // Generate a string to send, will use the first and last available char
+  const stringToSend = canvasData.map((flag) =>
+    flag ? allowedChars[0] : allowedChars[allowedChars.length - 1]
+  );
+  console.log('stringToSend=', stringToSend);
+
+  doSend(stringToSend);
+};
+
+window.startSendCanvas = startSendCanvas;
+
+const stopSendCanvas = () => {
+  throw new Error("todo: implement stopSendCanvas");
+};
+
+window.stopSendCanvas = stopSendCanvas;
+
+const startReceiveCanvas = () => {
+  window.clearCanvas();
+
+  throw new Error("todo: implement startReceiveCanvas");
+};
+
+window.startReceiveCanvas = startReceiveCanvas;
+
+const stopReceiveCanvas = () => {
+  throw new Error("todo: implement stopReceiveCanvas");
+};
+
+window.stopReceiveCanvas = stopReceiveCanvas;
